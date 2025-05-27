@@ -15,14 +15,14 @@
 # import os
 # os.environ["TORCH_CUDA_ARCH_LIST"] = "8.0"
 import argparse
-
+import os
 import cv2
 import gradio as gr
 import numpy as np
 import torch
-from facexlib.utils.face_restoration_helper import FaceRestoreHelper
 from huggingface_hub import hf_hub_download
 from optimum.quanto import freeze, qint8, quantize
+from diffusers import FluxTransformer2DModel
 from PIL import Image
 from torchvision.transforms.functional import normalize
 
@@ -51,30 +51,47 @@ class Generator:
         self.bg_rm_model = BEN2.BEN_Base().to(device).eval()
         hf_hub_download(repo_id='PramaLLC/BEN2', filename='BEN2_Base.pth', local_dir='models')
         self.bg_rm_model.loadcheckpoints('models/BEN2_Base.pth')
-        # face crop and align tool: facexlib
-        self.face_helper = FaceRestoreHelper(
-            upscale_factor=1,
-            face_size=512,
-            crop_ratio=(1, 1),
-            det_model='retinaface_resnet50',
-            save_ext='png',
-            device=device,
-        )
         if args.offload:
             self.ben_to_device(torch.device('cpu'))
-            self.facexlib_to_device(torch.device('cpu'))
 
         # load dreamo
-        model_root = 'black-forest-labs/FLUX.1-dev'
+        model_root = 'ChuckMcSneed/FLUX.1-dev'
+        #model_root = '/home/featurize/.cache/huggingface/hub/models--black-forest-labs--FLUX.1-dev/snapshots/0ef5fff789c832c5c7f4e127f94c8b54bbcced44'
+        #transformer = FluxTransformer2DModel.from_pretrained("/home/featurize/work/app/comfyui/ComfyUI/models/unet/flux1-dev-fp8.safetensors")
         dreamo_pipeline = DreamOPipeline.from_pretrained(model_root, torch_dtype=torch.bfloat16)
         dreamo_pipeline.load_dreamo_model(device, use_turbo=not args.no_turbo)
-        if args.int8:
-            print('start quantize')
-            quantize(dreamo_pipeline.transformer, qint8)
-            freeze(dreamo_pipeline.transformer)
-            quantize(dreamo_pipeline.text_encoder_2, qint8)
-            freeze(dreamo_pipeline.text_encoder_2)
-            print('done quantize')
+        quantized_model_path = "models/quantized_transformer.pt"
+        quantized_encoder_path = "models/quantized_text_encoder_2.pt"
+        try:
+            if args.int8:
+                print('int8 flag detected, attempting to load or create quantized models...')
+                quantized_loaded = False
+                if os.path.exists(quantized_model_path) and os.path.exists(quantized_encoder_path):
+                    try:
+                        dreamo_pipeline.transformer = torch.load(quantized_model_path, map_location=device, weights_only=False)
+                        dreamo_pipeline.text_encoder_2 = torch.load(quantized_encoder_path, map_location=device, weights_only=False)
+                        print('Loaded quantized models.')
+                        quantized_loaded = True
+                    except Exception as e:
+                        print(f"Failed to load quantized models, will quantize anew: {e}")
+                if not quantized_loaded:
+                    print('Quantizing models...')
+                    quantize(dreamo_pipeline.transformer, qint8)
+                    freeze(dreamo_pipeline.transformer)
+                    quantize(dreamo_pipeline.text_encoder_2, qint8)
+                    freeze(dreamo_pipeline.text_encoder_2)
+                    try:
+                        print('Saving quantized models to disk...')
+                        torch.save(dreamo_pipeline.transformer, quantized_model_path)
+                        torch.save(dreamo_pipeline.text_encoder_2, quantized_encoder_path)
+                        print('Saved quantized models.')
+                    except Exception as e:
+                        print(f"Failed to save quantized models: {e}")
+            self.dreamo_pipeline = dreamo_pipeline.to(device)
+            print("DreamO pipeline loaded and moved to device.")
+        except Exception as e:
+            print(f"Exception during quantization or pipeline setup: {e}")
+            raise
         self.dreamo_pipeline = dreamo_pipeline.to(device)
         if args.offload:
             self.dreamo_pipeline.enable_model_cpu_offload()
@@ -86,33 +103,11 @@ class Generator:
         self.bg_rm_model.to(device)
 
     def facexlib_to_device(self, device):
-        self.face_helper.face_det.to(device)
-        self.face_helper.face_parse.to(device)
+        pass
 
     @torch.no_grad()
     def get_align_face(self, img):
-        # the face preprocessing code is same as PuLID
-        self.face_helper.clean_all()
-        image_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        self.face_helper.read_image(image_bgr)
-        self.face_helper.get_face_landmarks_5(only_center_face=True)
-        self.face_helper.align_warp_face()
-        if len(self.face_helper.cropped_faces) == 0:
-            return None
-        align_face = self.face_helper.cropped_faces[0]
-
-        input = img2tensor(align_face, bgr2rgb=True).unsqueeze(0) / 255.0
-        input = input.to(torch.device("cuda"))
-        parsing_out = self.face_helper.face_parse(normalize(input, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]))[0]
-        parsing_out = parsing_out.argmax(dim=1, keepdim=True)
-        bg_label = [0, 16, 18, 7, 8, 9, 14, 15]
-        bg = sum(parsing_out == i for i in bg_label).bool()
-        white_image = torch.ones_like(input)
-        # only keep the face features
-        face_features_image = torch.where(bg, white_image, input)
-        face_features_image = tensor2img(face_features_image, rgb2bgr=False)
-
-        return face_features_image
+        return None
 
 
 generator = Generator()
@@ -405,4 +400,4 @@ def create_demo():
 
 if __name__ == '__main__':
     demo = create_demo()
-    demo.queue().launch(server_name='0.0.0.0', server_port=args.port)
+    demo.launch(share=True)

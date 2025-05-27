@@ -1,4 +1,5 @@
 torch==2.6.0
+opencv-python
 torchvision==0.21.0
 protobuf
 optimum-quanto==0.2.7
@@ -8,8 +9,6 @@ diffusers==0.31.0
 transformers==4.45.2
 sentencepiece
 gradio
-spaces
 huggingface_hub
 accelerate==0.32.0
 peft
-git+https://github.com/ToTheBeginning/facexlib.git

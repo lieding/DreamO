@@ -46,13 +46,13 @@ class DreamOPipeline(FluxPipeline):
     def load_dreamo_model(self, device, use_turbo=True):
         # download models and load file
         hf_hub_download(repo_id='ByteDance/DreamO', filename='dreamo.safetensors', local_dir='models')
-        hf_hub_download(repo_id='ByteDance/DreamO', filename='dreamo_cfg_distill.safetensors', local_dir='models')
-        hf_hub_download(repo_id='ByteDance/DreamO', filename='dreamo_quality_lora_pos.safetensors', local_dir='models')
-        hf_hub_download(repo_id='ByteDance/DreamO', filename='dreamo_quality_lora_neg.safetensors', local_dir='models')
+        #hf_hub_download(repo_id='ByteDance/DreamO', filename='dreamo_cfg_distill.safetensors', local_dir='models')
+        #hf_hub_download(repo_id='ByteDance/DreamO', filename='dreamo_quality_lora_pos.safetensors', local_dir='models')
+        #hf_hub_download(repo_id='ByteDance/DreamO', filename='dreamo_quality_lora_neg.safetensors', local_dir='models')
         dreamo_lora = load_file('models/dreamo.safetensors')
-        cfg_distill_lora = load_file('models/dreamo_cfg_distill.safetensors')
-        quality_lora_pos = load_file('models/dreamo_quality_lora_pos.safetensors')
-        quality_lora_neg = load_file('models/dreamo_quality_lora_neg.safetensors')
+        #cfg_distill_lora = load_file('models/dreamo_cfg_distill.safetensors')
+        #quality_lora_pos = load_file('models/dreamo_quality_lora_pos.safetensors')
+        #quality_lora_neg = load_file('models/dreamo_quality_lora_neg.safetensors')
 
         # load embedding
         self.t5_embedding.weight.data = dreamo_lora.pop('dreamo_t5_embedding.weight')[-10:]
@@ -67,10 +67,10 @@ class DreamOPipeline(FluxPipeline):
         self.load_lora_weights(dreamo_diffuser_lora, adapter_name='dreamo')
 
         # cfg lora to avoid true image cfg
-        cfg_diffuser_lora = convert_flux_lora_to_diffusers(cfg_distill_lora)
-        self.load_lora_weights(cfg_diffuser_lora, adapter_name='cfg')
-        adapter_names.append('cfg')
-        adapter_weights.append(1)
+        #cfg_diffuser_lora = convert_flux_lora_to_diffusers(cfg_distill_lora)
+        #self.load_lora_weights(cfg_diffuser_lora, adapter_name='cfg')
+        #adapter_names.append('cfg')
+        #adapter_weights.append(1)
 
         # turbo lora to speed up (from 25+ step to 12 step)
         if use_turbo:
@@ -84,14 +84,14 @@ class DreamOPipeline(FluxPipeline):
             adapter_weights.append(1)
 
         # quality loras, one pos, one neg
-        quality_lora_pos = convert_flux_lora_to_diffusers(quality_lora_pos)
-        self.load_lora_weights(quality_lora_pos, adapter_name='quality_pos')
-        adapter_names.append('quality_pos')
-        adapter_weights.append(0.15)
-        quality_lora_neg = convert_flux_lora_to_diffusers(quality_lora_neg)
-        self.load_lora_weights(quality_lora_neg, adapter_name='quality_neg')
-        adapter_names.append('quality_neg')
-        adapter_weights.append(-0.8)
+        # quality_lora_pos = convert_flux_lora_to_diffusers(quality_lora_pos)
+        # self.load_lora_weights(quality_lora_pos, adapter_name='quality_pos')
+        # adapter_names.append('quality_pos')
+        # adapter_weights.append(0.15)
+        # quality_lora_neg = convert_flux_lora_to_diffusers(quality_lora_neg)
+        # self.load_lora_weights(quality_lora_neg, adapter_name='quality_neg')
+        # adapter_names.append('quality_neg')
+        # adapter_weights.append(-0.8)
 
         self.set_adapters(adapter_names, adapter_weights)
         self.fuse_lora(adapter_names=adapter_names, lora_scale=1)
